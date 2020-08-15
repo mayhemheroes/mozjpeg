@@ -5,7 +5,7 @@ if(CMAKE_EXECUTABLE_SUFFIX)
 endif()
 
 project(mozjpeg C)
-set(VERSION 4.0.0)
+set(VERSION 4.0.1)
 string(REPLACE "." ";" VERSION_TRIPLET ${VERSION})
 list(GET VERSION_TRIPLET 0 VERSION_MAJOR)
 list(GET VERSION_TRIPLET 1 VERSION_MINOR)
@@ -109,8 +109,6 @@ endif()
 
 include(cmakescripts/GNUInstallDirs.cmake)
 
-set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_FULL_LIBDIR})
-
 macro(report_directory var)
   if(CMAKE_INSTALL_${var} STREQUAL CMAKE_INSTALL_FULL_${var})
     message(STATUS "CMAKE_INSTALL_${var} = ${CMAKE_INSTALL_${var}}")
@@ -192,6 +190,10 @@ endif()
 
 report_option(ENABLE_SHARED "Shared libraries")
 report_option(ENABLE_STATIC "Static libraries")
+
+if(ENABLE_SHARED)
+  set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_FULL_LIBDIR})
+endif()
 
 if(WITH_12BIT)
   set(WITH_ARITH_DEC 0)
@@ -333,7 +335,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "SunOS")
       endif()
       if(${var} MATCHES "-xO2")
         string(REGEX REPLACE "-xO2" "-xO5" ${var} "${${var}}")
-  endif()
+      endif()
     endforeach()
   endif()
 endif()
@@ -451,6 +453,21 @@ if(NOT INLINE_WORKS)
 endif()
 message(STATUS "INLINE = ${INLINE} (FORCE_INLINE = ${FORCE_INLINE})")
 
+if(WITH_TURBOJPEG)
+  if(MSVC)
+    set(THREAD_LOCAL "__declspec(thread)")
+  else()
+    set(THREAD_LOCAL "__thread")
+  endif()
+  check_c_source_compiles("${THREAD_LOCAL} int i;  int main(void) { i = 0;  return i; }" HAVE_THREAD_LOCAL)
+  if(HAVE_THREAD_LOCAL)
+    message(STATUS "THREAD_LOCAL = ${THREAD_LOCAL}")
+  else()
+    message(WARNING "Thread-local storage is not available.  The TurboJPEG API library's global error handler will not be thread-safe.")
+    unset(THREAD_LOCAL)
+  endif()
+endif()
+
 if(UNIX AND NOT APPLE)
   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/conftest.map "VERS_1 { global: *; };")
   set(CMAKE_REQUIRED_FLAGS
@@ -470,8 +487,8 @@ if(UNIX AND NOT APPLE)
       # still work.
       file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/conftest.map
         "VERS_1 { global: foo;  local: *; }; VERS_2 { global: foo2; } VERS_1;")
-      set(CMAKE_REQUIRED_FLAGS "-Wl,-M,${CMAKE_CURRENT_BINARY_DIR}/conftest.map")
-      check_c_source_compiles("void foo() {} void foo2() {} int main(void) { return 0; }"
+      set(CMAKE_REQUIRED_FLAGS "-Wl,-M,${CMAKE_CURRENT_BINARY_DIR}/conftest.map -shared")
+      check_c_source_compiles("int foo() { return 0; } int foo2() { return 2; }"
         HAVE_MAPFILE)
       set(CMAKE_REQUIRED_FLAGS)
       file(REMOVE ${CMAKE_CURRENT_BINARY_DIR}/conftest.map)
@@ -536,7 +553,7 @@ elseif(NOT WITH_12BIT)
 endif()
 if(WITH_SIMD)
   message(STATUS "SIMD extensions: ${CPU_TYPE} (WITH_SIMD = ${WITH_SIMD})")
-  if(MSVC_IDE)
+  if(MSVC_IDE OR XCODE)
     set_source_files_properties(${SIMD_OBJS} PROPERTIES GENERATED 1)
   endif()
 else()
@@ -565,16 +582,16 @@ if(WITH_TURBOJPEG)
       turbojpeg.c transupp.c jdatadst-tj.c jdatasrc-tj.c rdbmp.c rdppm.c
       wrbmp.c wrppm.c)
     set(TJMAPFILE ${CMAKE_CURRENT_SOURCE_DIR}/turbojpeg-mapfile)
-  if(WITH_JAVA)
-    set(TURBOJPEG_SOURCES ${TURBOJPEG_SOURCES} turbojpeg-jni.c)
-    include_directories(${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2})
+    if(WITH_JAVA)
+      set(TURBOJPEG_SOURCES ${TURBOJPEG_SOURCES} turbojpeg-jni.c)
+      include_directories(${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2})
       set(TJMAPFILE ${CMAKE_CURRENT_SOURCE_DIR}/turbojpeg-mapfile.jni)
-  endif()
+    endif()
     add_library(turbojpeg SHARED ${TURBOJPEG_SOURCES})
     set_property(TARGET turbojpeg PROPERTY COMPILE_FLAGS
       "-DBMP_SUPPORTED -DPPM_SUPPORTED")
     if(WIN32)
-    set_target_properties(turbojpeg PROPERTIES DEFINE_SYMBOL DLLDEFINE)
+      set_target_properties(turbojpeg PROPERTIES DEFINE_SYMBOL DLLDEFINE)
     endif()
     if(MINGW)
       set_target_properties(turbojpeg PROPERTIES LINK_FLAGS -Wl,--kill-at)
@@ -609,7 +626,7 @@ if(WITH_TURBOJPEG)
     target_link_libraries(tjexample turbojpeg)
     if(UNIX)
       target_link_libraries(tjexample m)
-    endif()
+  endif()
   endif()
 
   if(ENABLE_STATIC)
@@ -699,7 +716,7 @@ add_executable(wrjpgcom wrjpgcom.c)
 
 add_subdirectory(md5)
 
-if(MSVC_IDE)
+if(MSVC_IDE OR XCODE)
   set(OBJDIR "\${CTEST_CONFIGURATION_TYPE}/")
 else()
   set(OBJDIR "")
@@ -715,7 +732,7 @@ if(WITH_12BIT)
   set(MD5_JPEG_422_IFAST_OPT 7322e3bd2f127f7de4b40d4480ce60e4)
   set(MD5_PPM_422_IFAST 79807fa552899e66a04708f533e16950)
   set(MD5_PPM_422M_IFAST 07737bfe8a7c1c87aaa393a0098d16b0)
-  set(MD5_JPEG_420_IFAST_Q100_PROG a1da220b5604081863a504297ed59e55)
+  set(MD5_JPEG_420_IFAST_Q100_PROG 008ab68d6ddbba04a8f01deee4e0f9f8)
   set(MD5_PPM_420_Q100_IFAST 1b3730122709f53d007255e8dfd3305e)
   set(MD5_PPM_420M_Q100_IFAST 980a1a3c5bf9510022869d30b7d26566)
   set(MD5_JPEG_GRAY_ISLOW 235c90707b16e2e069f37c888b2636d9)
@@ -765,7 +782,7 @@ else()
   set(MD5_PPM_422M_IFAST 8dbc65323d62cca7c91ba02dd1cfa81d)
   set(MD5_BMP_422M_IFAST_565 3294bd4d9a1f2b3d08ea6020d0db7065)
   set(MD5_BMP_422M_IFAST_565D da98c9c7b6039511be4a79a878a9abc1)
-  set(MD5_JPEG_420_IFAST_Q100_PROG 990cbe0329c882420a2094da7e5adade)
+  set(MD5_JPEG_420_IFAST_Q100_PROG e59bb462016a8d9a748c330a3474bb55)
   set(MD5_PPM_420_Q100_IFAST 5a732542015c278ff43635e473a8a294)
   set(MD5_PPM_420M_Q100_IFAST ff692ee9323a3b424894862557c092f1)
   set(MD5_JPEG_GRAY_ISLOW 72b51f894b8f4a10b3ee3066770aa38d)
@@ -921,12 +938,18 @@ foreach(libtype ${TEST_LIBTYPES})
     set(suffix -static)
   endif()
   if(WITH_TURBOJPEG)
-    add_test(tjunittest-${libtype} tjunittest${suffix})
-    add_test(tjunittest-${libtype}-alloc tjunittest${suffix} -alloc)
-    add_test(tjunittest-${libtype}-yuv tjunittest${suffix} -yuv)
-    add_test(tjunittest-${libtype}-yuv-alloc tjunittest${suffix} -yuv -alloc)
-    add_test(tjunittest-${libtype}-yuv-nopad tjunittest${suffix} -yuv -noyuvpad)
-    add_test(tjunittest-${libtype}-bmp tjunittest${suffix} -bmp)
+    add_test(tjunittest-${libtype}
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjunittest${suffix})
+    add_test(tjunittest-${libtype}-alloc
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjunittest${suffix} -alloc)
+    add_test(tjunittest-${libtype}-yuv
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjunittest${suffix} -yuv)
+    add_test(tjunittest-${libtype}-yuv-alloc
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjunittest${suffix} -yuv -alloc)
+    add_test(tjunittest-${libtype}-yuv-nopad
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjunittest${suffix} -yuv -noyuvpad)
+    add_test(tjunittest-${libtype}-bmp
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjunittest${suffix} -bmp)
 
     set(MD5_PPM_GRAY_TILE 89d3ca21213d9d864b50b4e4e7de4ca6)
     set(MD5_PPM_420_8x8_TILE 847fceab15c5b7b911cb986cf0f71de3)
@@ -951,22 +974,23 @@ foreach(libtype ${TEST_LIBTYPES})
       ${CMAKE_COMMAND} -E copy_if_different ${TESTIMAGES}/testorig.ppm
         testout_tile.ppm)
     add_test(tjbench-${libtype}-tile
-      tjbench${suffix} testout_tile.ppm 95 -rgb -quiet -tile -benchtime 0.01
-        -warmup 0)
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjbench${suffix} testout_tile.ppm 95
+        -rgb -quiet -tile -benchtime 0.01 -warmup 0)
     set_tests_properties(tjbench-${libtype}-tile
       PROPERTIES DEPENDS tjbench-${libtype}-tile-cp)
 
     foreach(tile 8 16 32 64 128)
       add_test(tjbench-${libtype}-tile-gray-${tile}x${tile}-cmp
-        ${MD5CMP} ${MD5_PPM_GRAY_TILE}
+        ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP} ${MD5_PPM_GRAY_TILE}
           testout_tile_GRAY_Q95_${tile}x${tile}.ppm)
       foreach(subsamp 420 422)
         add_test(tjbench-${libtype}-tile-${subsamp}-${tile}x${tile}-cmp
-          ${MD5CMP} ${MD5_PPM_${subsamp}_${tile}x${tile}_TILE}
+          ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP}
+            ${MD5_PPM_${subsamp}_${tile}x${tile}_TILE}
             testout_tile_${subsamp}_Q95_${tile}x${tile}.ppm)
       endforeach()
       add_test(tjbench-${libtype}-tile-444-${tile}x${tile}-cmp
-        ${MD5CMP} ${MD5_PPM_444_TILE}
+        ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP} ${MD5_PPM_444_TILE}
           testout_tile_444_Q95_${tile}x${tile}.ppm)
       foreach(subsamp gray 420 422 444)
         set_tests_properties(tjbench-${libtype}-tile-${subsamp}-${tile}x${tile}-cmp
@@ -978,19 +1002,22 @@ foreach(libtype ${TEST_LIBTYPES})
       ${CMAKE_COMMAND} -E copy_if_different ${TESTIMAGES}/testorig.ppm
         testout_tilem.ppm)
     add_test(tjbench-${libtype}-tilem
-      tjbench${suffix} testout_tilem.ppm 95 -rgb -fastupsample -quiet -tile
-        -benchtime 0.01 -warmup 0)
+      ${CMAKE_CROSSCOMPILING_EMULATOR} tjbench${suffix} testout_tilem.ppm 95
+        -rgb -fastupsample -quiet -tile -benchtime 0.01 -warmup 0)
     set_tests_properties(tjbench-${libtype}-tilem
       PROPERTIES DEPENDS tjbench-${libtype}-tilem-cp)
 
     add_test(tjbench-${libtype}-tile-420m-8x8-cmp
-      ${MD5CMP} ${MD5_PPM_420M_8x8_TILE} testout_tilem_420_Q95_8x8.ppm)
+      ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP} ${MD5_PPM_420M_8x8_TILE}
+        testout_tilem_420_Q95_8x8.ppm)
     add_test(tjbench-${libtype}-tile-422m-8x8-cmp
-      ${MD5CMP} ${MD5_PPM_422M_8x8_TILE} testout_tilem_422_Q95_8x8.ppm)
+      ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP} ${MD5_PPM_422M_8x8_TILE}
+        testout_tilem_422_Q95_8x8.ppm)
     foreach(tile 16 32 64 128)
       foreach(subsamp 420 422)
         add_test(tjbench-${libtype}-tile-${subsamp}m-${tile}x${tile}-cmp
-          ${MD5CMP} ${MD5_PPM_${subsamp}M_TILE}
+          ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP}
+            ${MD5_PPM_${subsamp}M_TILE}
             testout_tilem_${subsamp}_Q95_${tile}x${tile}.ppm)
       endforeach()
     endforeach()
@@ -1008,9 +1035,10 @@ foreach(libtype ${TEST_LIBTYPES})
 
   macro(add_bittest PROG NAME ARGS OUTFILE INFILE MD5SUM)
     add_test(${PROG}-${libtype}-${NAME}
-      ${PROG}${suffix} ${ARGS} -outfile ${OUTFILE} ${INFILE})
+      ${CMAKE_CROSSCOMPILING_EMULATOR} ${PROG}${suffix} ${ARGS}
+        -outfile ${OUTFILE} ${INFILE})
     add_test(${PROG}-${libtype}-${NAME}-cmp
-      ${MD5CMP} ${MD5SUM} ${OUTFILE})
+      ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP} ${MD5SUM} ${OUTFILE})
     set_tests_properties(${PROG}-${libtype}-${NAME}-cmp PROPERTIES
       DEPENDS ${PROG}-${libtype}-${NAME})
     if(${ARGC} GREATER 6)
@@ -1031,10 +1059,14 @@ foreach(libtype ${TEST_LIBTYPES})
     ${MD5_PPM_RGB_ISLOW} cjpeg-${libtype}-rgb-islow)
 
   add_test(djpeg-${libtype}-rgb-islow-icc-cmp
-    ${MD5CMP} b06a39d730129122e85c1363ed1bbc9e testout_rgb_islow.icc)
+    ${CMAKE_CROSSCOMPILING_EMULATOR} ${MD5CMP}
+      b06a39d730129122e85c1363ed1bbc9e testout_rgb_islow.icc)
+  set_tests_properties(djpeg-${libtype}-rgb-islow-icc-cmp PROPERTIES
+    DEPENDS djpeg-${libtype}-rgb-islow)
 
   add_bittest(jpegtran icc "-copy;all;-icc;${TESTIMAGES}/test2.icc"
-    testout_rgb_islow2.jpg testout_rgb_islow.jpg ${MD5_JPEG_RGB_ISLOW2})
+    testout_rgb_islow2.jpg testout_rgb_islow.jpg
+    ${MD5_JPEG_RGB_ISLOW2} cjpeg-${libtype}-rgb-islow)
 
   if(NOT WITH_12BIT)
     # CC: RGB->RGB565  SAMP: fullsize  IDCT: islow  ENT: huff
@@ -1078,7 +1110,7 @@ foreach(libtype ${TEST_LIBTYPES})
 
   # CC: RGB->YCC  SAMP: fullsize/h2v2  FDCT: ifast  ENT: prog huff
   add_bittest(cjpeg 420-q100-ifast-prog
-    "-sample;2x2;-quality;100;-dct;fast;-prog"
+    "-sample;2x2;-quality;100;-dct;fast;-scans;${TESTIMAGES}/test.scan"
     testout_420_q100_ifast_prog.jpg ${TESTIMAGES}/testorig.ppm
     ${MD5_JPEG_420_IFAST_Q100_PROG})
 
@@ -1126,12 +1158,12 @@ foreach(libtype ${TEST_LIBTYPES})
     ${MD5_JPEG_420S_IFAST_OPT})
 
   if(FLOATTEST)
-  # CC: RGB->YCC  SAMP: fullsize/int  FDCT: float  ENT: prog huff
+    # CC: RGB->YCC  SAMP: fullsize/int  FDCT: float  ENT: prog huff
     add_bittest(cjpeg 3x2-float-prog "-sample;3x2;-dct;float;-prog"
       testout_3x2_float_prog.jpg ${TESTIMAGES}/testorig.ppm
       ${MD5_JPEG_3x2_FLOAT_PROG_${FLOATTEST_UC}})
 
-  # CC: YCC->RGB  SAMP: fullsize/int  IDCT: float  ENT: prog huff
+    # CC: YCC->RGB  SAMP: fullsize/int  IDCT: float  ENT: prog huff
     add_bittest(djpeg 3x2-float-prog "-dct;float"
       testout_3x2_float.ppm testout_3x2_float_prog.jpg
       ${MD5_PPM_3x2_FLOAT_${FLOATTEST_UC}} cjpeg-${libtype}-3x2-float-prog)
@@ -1247,7 +1279,7 @@ foreach(libtype ${TEST_LIBTYPES})
 
   # Context rows: Yes  Intra-iMCU row: No   iMCU row prefetch: No   ENT: prog huff
   add_test(cjpeg-${libtype}-420-islow-prog
-    cjpeg${suffix} -dct int -prog
+    ${CMAKE_CROSSCOMPILING_EMULATOR} cjpeg${suffix} -dct int -prog
       -outfile testout_420_islow_prog.jpg ${TESTIMAGES}/testorig.ppm)
   add_bittest(djpeg 420-islow-prog-crop62x62_71_71
     "-dct;int;-crop;62x62+71+71;-ppm"
@@ -1264,7 +1296,7 @@ foreach(libtype ${TEST_LIBTYPES})
 
   # Context rows: No   Intra-iMCU row: Yes  ENT: huff
   add_test(cjpeg-${libtype}-444-islow
-    cjpeg${suffix} -dct int -sample 1x1
+    ${CMAKE_CROSSCOMPILING_EMULATOR} cjpeg${suffix} -dct int -sample 1x1
       -outfile testout_444_islow.jpg ${TESTIMAGES}/testorig.ppm)
   add_bittest(djpeg 444-islow-skip1_6 "-dct;int;-skip;1,6;-ppm"
     testout_444_islow_skip1,6.ppm testout_444_islow.jpg
@@ -1272,7 +1304,7 @@ foreach(libtype ${TEST_LIBTYPES})
 
   # Context rows: No   Intra-iMCU row: No   ENT: prog huff
   add_test(cjpeg-${libtype}-444-islow-prog
-    cjpeg${suffix} -dct int -prog -sample 1x1
+    ${CMAKE_CROSSCOMPILING_EMULATOR} cjpeg${suffix} -dct int -prog -sample 1x1
       -outfile testout_444_islow_prog.jpg ${TESTIMAGES}/testorig.ppm)
   add_bittest(djpeg 444-islow-prog-crop98x98_13_13
     "-dct;int;-crop;98x98+13+13;-ppm"
@@ -1282,8 +1314,9 @@ foreach(libtype ${TEST_LIBTYPES})
   # Context rows: No   Intra-iMCU row: No   ENT: arith
   if(WITH_ARITH_ENC)
     add_test(cjpeg-${libtype}-444-islow-ari
-      cjpeg${suffix} -dct int -arithmetic -sample 1x1
-        -outfile testout_444_islow_ari.jpg ${TESTIMAGES}/testorig.ppm)
+      ${CMAKE_CROSSCOMPILING_EMULATOR} cjpeg${suffix} -dct int -arithmetic
+        -sample 1x1 -outfile testout_444_islow_ari.jpg
+        ${TESTIMAGES}/testorig.ppm)
     if(WITH_ARITH_DEC)
       add_bittest(djpeg 444-islow-ari-crop37x37_0_0
         "-dct;int;-crop;37x37+0+0;-ppm"
@@ -1321,6 +1354,8 @@ if(WITH_TURBOJPEG)
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -yuv -alloc
       COMMAND echo tjbenchtest -progressive
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -progressive
+      COMMAND echo tjbenchtest -progressive -yuv
+      COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -progressive -yuv
       COMMAND echo tjexampletest
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjexampletest
       COMMAND echo tjbenchtest.java
@@ -1329,6 +1364,9 @@ if(WITH_TURBOJPEG)
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest.java -yuv
       COMMAND echo tjbenchtest.java -progressive
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest.java -progressive
+      COMMAND echo tjexampletest.java -progressive -yuv
+      COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest.java
+        -progressive -yuv
       COMMAND echo tjexampletest.java
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjexampletest.java
       DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest
@@ -1344,6 +1382,10 @@ if(WITH_TURBOJPEG)
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -yuv
       COMMAND echo tjbenchtest -yuv -alloc
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -yuv -alloc
+      COMMAND echo tjbenchtest -progressive
+      COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -progressive
+      COMMAND echo tjbenchtest -progressive -yuv
+      COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest -progressive -yuv
       COMMAND echo tjexampletest
       COMMAND ${BASH} ${CMAKE_CURRENT_BINARY_DIR}/tjexampletest
       DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/tjbenchtest)
@@ -1363,12 +1405,22 @@ if(WITH_TURBOJPEG)
       ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
       LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
       RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    if(NOT CMAKE_VERSION VERSION_LESS "3.1" AND MSVC AND
+      CMAKE_C_LINKER_SUPPORTS_PDB)
+      install(FILES "$<TARGET_PDB_FILE:turbojpeg>"
+        DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL)
+  endif()
   endif()
   if(ENABLE_STATIC)
     install(TARGETS turbojpeg-static ARCHIVE
       DESTINATION ${CMAKE_INSTALL_LIBDIR})
     if(NOT ENABLE_SHARED)
-      install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/tjbench-static${EXE}
+      if(MSVC_IDE OR XCODE)
+        set(DIR "${CMAKE_CURRENT_BINARY_DIR}/\${CMAKE_INSTALL_CONFIG_NAME}")
+      else()
+        set(DIR ${CMAKE_CURRENT_BINARY_DIR})
+      endif()
+      install(PROGRAMS ${DIR}/tjbench-static${EXE}
         DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME tjbench${EXE})
     endif()
   endif()
@@ -1379,11 +1431,16 @@ endif()
 if(ENABLE_STATIC)
   install(TARGETS jpeg-static ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
   if(NOT ENABLE_SHARED)
-    install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/cjpeg-static${EXE}
+    if(MSVC_IDE OR XCODE)
+      set(DIR "${CMAKE_CURRENT_BINARY_DIR}/\${CMAKE_INSTALL_CONFIG_NAME}")
+    else()
+      set(DIR ${CMAKE_CURRENT_BINARY_DIR})
+    endif()
+    install(PROGRAMS ${DIR}/cjpeg-static${EXE}
       DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME cjpeg${EXE})
-    install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/djpeg-static${EXE}
+    install(PROGRAMS ${DIR}/djpeg-static${EXE}
       DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME djpeg${EXE})
-    install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/jpegtran-static${EXE}
+    install(PROGRAMS ${DIR}/jpegtran-static${EXE}
       DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME jpegtran${EXE})
   endif()
 endif()
@@ -1408,10 +1465,10 @@ if(UNIX OR MINGW)
     ${CMAKE_CURRENT_SOURCE_DIR}/rdjpgcom.1
     ${CMAKE_CURRENT_SOURCE_DIR}/wrjpgcom.1
     DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+endif()
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/pkgscripts/libjpeg.pc
     ${CMAKE_CURRENT_BINARY_DIR}/pkgscripts/libturbojpeg.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-endif()
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/jconfig.h
   ${CMAKE_CURRENT_SOURCE_DIR}/jerror.h ${CMAKE_CURRENT_SOURCE_DIR}/jmorecfg.h
