@@ -1,0 +1,5 @@
+project: rnshah9/mozjpeg
+target: cjpeg
+
+cmds:
+  - cmd: /repo/build/cjpeg @@
