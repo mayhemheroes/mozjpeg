@@ -2,4 +2,4 @@ project: mozjpeg
 target: cjpeg
 
 cmds:
-  - cmd: /repo/build/cjpeg @@
+  - cmd: /install/bin/cjpeg @@
